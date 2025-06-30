@@ -10,7 +10,6 @@ import java.nio.file.Paths;
 public class TPCHQuery3JobV1 {
 
     public static void main(String[] args) throws Exception {
-        // check number of parameters
         if (args.length != 1) {
             throw new IllegalArgumentException("Usage: TPCHQuery3JobV1 <path-to-data>");
         }
@@ -24,7 +23,9 @@ public class TPCHQuery3JobV1 {
         String lineitemURI = Utils.getFileURI(lineitemPath);
 
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        // Set the job name
         TableEnvironment tableEnv = StreamTableEnvironment.create(env);
+        tableEnv.getConfig().set("pipeline.name", "TPC-H Query 3 Job V1");
 
         tableEnv.executeSql(
                 "CREATE TABLE Customer (" +
@@ -111,6 +112,17 @@ public class TPCHQuery3JobV1 {
 
         Table resultTable = tableEnv.sqlQuery(sqlQuery);
 
-        resultTable.execute().print();
+        // Write the result to a temporary table, so the job can be seen on the Flink
+        // dashboard
+        tableEnv.executeSql(
+                "CREATE TABLE Query3ResultOutput (" +
+                        "  L_ORDERKEY BIGINT," +
+                        "  O_ORDERDATE DATE," +
+                        "  O_SHIPPRIORITY INTEGER," +
+                        "  revenue DECIMAL(38, 2)" +
+                        ") WITH (" +
+                        "  'connector' = 'print'" +
+                        ")");
+        resultTable.executeInsert("Query3ResultOutput").await();
     }
 }
