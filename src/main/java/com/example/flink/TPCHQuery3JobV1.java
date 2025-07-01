@@ -1,5 +1,6 @@
 package com.example.flink;
 
+import org.apache.flink.api.common.RuntimeExecutionMode;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.table.api.Table;
 import org.apache.flink.table.api.TableEnvironment;
@@ -10,11 +11,29 @@ import java.nio.file.Paths;
 public class TPCHQuery3JobV1 {
 
     public static void main(String[] args) throws Exception {
-        if (args.length != 1) {
-            throw new IllegalArgumentException("Usage: TPCHQuery3JobV1 <path-to-data>");
+        boolean isBatchMode = false;
+        String dataPathArg = null;
+        String outputPathArg = null;
+
+        for (String arg : args) {
+            if (arg.equals("-b")) {
+                isBatchMode = true;
+            } else if (dataPathArg == null) {
+                dataPathArg = arg;
+            } else if (outputPathArg == null) {
+                outputPathArg = arg;
+            } else {
+                throw new IllegalArgumentException(
+                        "Usage: TPCHQuery3JobV1 [-b] <path-to-data> <output-file-path>");
+            }
         }
 
-        Path dataPath = Paths.get(Utils.convertAndNormalizePath(args[0]));
+        if (dataPathArg == null || outputPathArg == null) {
+            throw new IllegalArgumentException(
+                    "Usage: TPCHQuery3JobV1 [-b] <path-to-data> <output-file-path>");
+        }
+
+        Path dataPath = Paths.get(Utils.convertAndNormalizePath(dataPathArg));
         String customerPath = dataPath.resolve("customer.tbl").toString();
         String ordersPath = dataPath.resolve("orders.tbl").toString();
         String lineitemPath = dataPath.resolve("lineitem.tbl").toString();
@@ -22,7 +41,19 @@ public class TPCHQuery3JobV1 {
         String ordersURI = Utils.getFileURI(ordersPath);
         String lineitemURI = Utils.getFileURI(lineitemPath);
 
+        Path outputPath = Paths.get(Utils.convertAndNormalizePath(outputPathArg));
+        String outputURI = Utils.getFileURI(outputPath.toString());
+
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+
+        if (isBatchMode) {
+            env.setRuntimeMode(RuntimeExecutionMode.BATCH);
+            System.out.println("Flink environment set to BATCH mode.");
+        } else {
+            env.setRuntimeMode(RuntimeExecutionMode.STREAMING);
+            System.out.println("Flink environment set to STREAMING mode.");
+        }
+
         // Set the job name
         TableEnvironment tableEnv = StreamTableEnvironment.create(env);
         tableEnv.getConfig().set("pipeline.name", "TPC-H Query 3 Job V1");
@@ -107,15 +138,18 @@ public class TPCHQuery3JobV1 {
 
         Table resultTable = tableEnv.sqlQuery(sqlQuery);
 
-        // Write the result to a temporary table, so the job can be seen on the Flink
-        // dashboard
         tableEnv.executeSql(
                 "CREATE TABLE Query3ResultOutput (" +
                         "  C_CUSTKEY BIGINT," +
                         "  O_ORDERKEY BIGINT," +
                         "  L_LINENUMBER INTEGER" +
                         ") WITH (" +
-                        "  'connector' = 'print'" +
+                        "  'connector' = 'filesystem'," +
+                        "  'path' = '" + outputURI + "'," +
+                        "  'format' = 'csv'," +
+                        "  'csv.field-delimiter' = '|'," +
+                        "  'sink.rolling-policy.rollover-interval' = '1 min'," +
+                        "  'sink.rolling-policy.check-interval' = '10 s'" +
                         ")");
         resultTable.executeInsert("Query3ResultOutput").await();
     }
