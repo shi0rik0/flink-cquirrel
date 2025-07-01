@@ -91,24 +91,19 @@ public class TPCHQuery3JobV1 {
                         ")");
 
         String sqlQuery = "SELECT " +
-                "  L_ORDERKEY, " +
-                "  O_ORDERDATE, " +
-                "  O_SHIPPRIORITY, " +
-                "  SUM(L_EXTENDEDPRICE * (1 - L_DISCOUNT)) AS revenue " +
+                "  C_CUSTKEY, " +
+                "  O_ORDERKEY, " +
+                "  L_LINENUMBER " +
                 "FROM " +
                 "  Lineitem, " +
                 "  Customer, " +
                 "  Orders " +
                 "WHERE " +
-                "  C_MKTSEGMENT = 'AUTOMOBILE' AND " +
                 "  C_CUSTKEY = O_CUSTKEY AND " +
                 "  L_ORDERKEY = O_ORDERKEY AND " +
+                "  C_MKTSEGMENT = 'AUTOMOBILE' AND " +
                 "  O_ORDERDATE < DATE '1995-03-13' AND " +
-                "  L_SHIPDATE > DATE '1995-03-13' " +
-                "GROUP BY " +
-                "  L_ORDERKEY, " +
-                "  O_ORDERDATE, " +
-                "  O_SHIPPRIORITY";
+                "  L_SHIPDATE > DATE '1995-03-13' ";
 
         Table resultTable = tableEnv.sqlQuery(sqlQuery);
 
@@ -116,10 +111,9 @@ public class TPCHQuery3JobV1 {
         // dashboard
         tableEnv.executeSql(
                 "CREATE TABLE Query3ResultOutput (" +
-                        "  L_ORDERKEY BIGINT," +
-                        "  O_ORDERDATE DATE," +
-                        "  O_SHIPPRIORITY INTEGER," +
-                        "  revenue DECIMAL(38, 2)" +
+                        "  C_CUSTKEY BIGINT," +
+                        "  O_ORDERKEY BIGINT," +
+                        "  L_LINENUMBER INTEGER" +
                         ") WITH (" +
                         "  'connector' = 'print'" +
                         ")");
