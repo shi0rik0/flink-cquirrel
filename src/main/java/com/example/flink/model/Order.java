@@ -1,8 +1,18 @@
 package com.example.flink.model;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.util.Objects;
+
+import org.apache.flink.api.common.eventtime.WatermarkStrategy;
+import org.apache.flink.api.common.functions.MapFunction;
+import org.apache.flink.connector.file.src.FileSource;
+import org.apache.flink.connector.file.src.reader.TextLineInputFormat;
+import org.apache.flink.streaming.api.datastream.DataStream;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+
 import java.io.Serializable;
 
 public class Order implements Serializable {
@@ -144,5 +154,68 @@ public class Order implements Serializable {
                 ", o_shippriority=" + o_shippriority +
                 ", o_comment='" + o_comment + '\'' +
                 '}';
+    }
+
+    public static DataStream<Order> createOrderStream(StreamExecutionEnvironment env, String orderPath) {
+        FileSource<String> source = FileSource.forRecordStreamFormat(
+                new TextLineInputFormat(StandardCharsets.UTF_8.name()),
+                new org.apache.flink.core.fs.Path(orderPath))
+                .build();
+
+        DataStream<String> lineStream = env.fromSource(
+                source,
+                WatermarkStrategy.noWatermarks(),
+                "orders.tbl");
+
+        DataStream<Order> orderStream = lineStream
+                .filter(line -> !line.trim().isEmpty())
+                .map(new MapFunction<String, Order>() {
+                    private static final long serialVersionUID = 1L;
+
+                    @Override
+                    public Order map(String line) throws Exception {
+                        String[] parts = line.split("\\|");
+
+                        if (parts.length != 9) {
+                            System.err.println("Skipping malformed line (wrong number of fields): " +
+                                    line);
+                            return null;
+                        }
+
+                        try {
+                            long o_orderkey = Long.parseLong(parts[0].trim());
+                            long o_custkey = Long.parseLong(parts[1].trim());
+                            String o_orderstatus = parts[2].trim();
+                            BigDecimal o_totalprice = new BigDecimal(parts[3].trim());
+                            LocalDate o_orderdate = LocalDate.parse(parts[4].trim());
+                            String o_orderpriority = parts[5].trim();
+                            String o_clerk = parts[6].trim();
+                            int o_shippriority = Integer.parseInt(parts[7].trim());
+                            String o_comment = parts[8].trim();
+
+                            return new Order(o_orderkey, o_custkey, o_orderstatus, o_totalprice,
+                                    o_orderdate, o_orderpriority, o_clerk, o_shippriority, o_comment);
+
+                        } catch (NumberFormatException e) {
+                            System.err.println(
+                                    "Skipping line due to number format error: " + line + " - " +
+                                            e.getMessage());
+                            return null;
+                        } catch (DateTimeParseException e) {
+                            System.err.println(
+                                    "Skipping line due to date format error: " + line + " - " + e.getMessage());
+                            return null;
+                        } catch (Exception e) {
+                            System.err.println(
+                                    "Skipping line due to unexpected parsing error: " + line + " - " +
+                                            e.getMessage());
+                            return null;
+                        }
+                    }
+                })
+                .returns(Order.class)
+                .filter(Objects::nonNull);
+
+        return orderStream;
     }
 }

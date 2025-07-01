@@ -1,8 +1,18 @@
 package com.example.flink.model;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.util.Objects;
+
+import org.apache.flink.api.common.eventtime.WatermarkStrategy;
+import org.apache.flink.api.common.functions.MapFunction;
+import org.apache.flink.connector.file.src.FileSource;
+import org.apache.flink.connector.file.src.reader.TextLineInputFormat;
+import org.apache.flink.streaming.api.datastream.DataStream;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+
 import java.io.Serializable;
 
 public class LineItem implements Serializable {
@@ -232,5 +242,78 @@ public class LineItem implements Serializable {
                 ", l_shipmode='" + l_shipmode + '\'' +
                 ", l_comment='" + l_comment + '\'' +
                 '}';
+    }
+
+    public static DataStream<LineItem> createLineItemStream(StreamExecutionEnvironment env, String lineItemPath) {
+        FileSource<String> source = FileSource.forRecordStreamFormat(
+                new TextLineInputFormat(StandardCharsets.UTF_8.name()),
+                new org.apache.flink.core.fs.Path(lineItemPath))
+                .build();
+
+        DataStream<String> lineStream = env.fromSource(
+                source,
+                WatermarkStrategy.noWatermarks(),
+                "lineitem.tbl");
+
+        DataStream<LineItem> lineItemStream = lineStream
+                .filter(line -> !line.trim().isEmpty())
+                .map(new MapFunction<String, LineItem>() {
+                    private static final long serialVersionUID = 1L;
+
+                    @Override
+                    public LineItem map(String line) throws Exception {
+                        String[] parts = line.split("\\|");
+
+                        if (parts.length != 16) {
+                            System.err
+                                    .println("Skipping malformed line (wrong number of fields for LineItem): " + line);
+                            return null;
+                        }
+
+                        try {
+                            long l_orderkey = Long.parseLong(parts[0].trim());
+                            long l_partkey = Long.parseLong(parts[1].trim());
+                            long l_suppkey = Long.parseLong(parts[2].trim());
+                            int l_linenumber = Integer.parseInt(parts[3].trim());
+                            BigDecimal l_quantity = new BigDecimal(parts[4].trim());
+                            BigDecimal l_extendedprice = new BigDecimal(parts[5].trim());
+                            BigDecimal l_discount = new BigDecimal(parts[6].trim());
+                            BigDecimal l_tax = new BigDecimal(parts[7].trim());
+                            String l_returnflag = parts[8].trim();
+                            String l_linestatus = parts[9].trim();
+                            LocalDate l_shipdate = LocalDate.parse(parts[10].trim());
+                            LocalDate l_commitdate = LocalDate.parse(parts[11].trim());
+                            LocalDate l_receiptdate = LocalDate.parse(parts[12].trim());
+                            String l_shipinstruct = parts[13].trim();
+                            String l_shipmode = parts[14].trim();
+                            String l_comment = parts[15].trim();
+
+                            return new LineItem(l_orderkey, l_partkey, l_suppkey, l_linenumber,
+                                    l_quantity, l_extendedprice, l_discount, l_tax, l_returnflag,
+                                    l_linestatus, l_shipdate, l_commitdate, l_receiptdate,
+                                    l_shipinstruct, l_shipmode, l_comment);
+
+                        } catch (NumberFormatException e) {
+                            System.err.println(
+                                    "Skipping line due to number format error for LineItem: " + line + " - "
+                                            + e.getMessage());
+                            return null;
+                        } catch (DateTimeParseException e) {
+                            System.err.println(
+                                    "Skipping line due to date format error for LineItem: " + line + " - "
+                                            + e.getMessage());
+                            return null;
+                        } catch (Exception e) {
+                            System.err.println(
+                                    "Skipping line due to unexpected parsing error for LineItem: " + line + " - "
+                                            + e.getMessage());
+                            return null;
+                        }
+                    }
+                })
+                .returns(LineItem.class)
+                .filter(Objects::nonNull);
+
+        return lineItemStream;
     }
 }

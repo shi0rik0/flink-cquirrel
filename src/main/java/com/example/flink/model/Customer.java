@@ -1,7 +1,16 @@
 package com.example.flink.model;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.util.Objects;
+
+import org.apache.flink.api.common.eventtime.WatermarkStrategy;
+import org.apache.flink.api.common.functions.MapFunction;
+import org.apache.flink.connector.file.src.FileSource;
+import org.apache.flink.connector.file.src.reader.TextLineInputFormat;
+import org.apache.flink.streaming.api.datastream.DataStream;
+import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+
 import java.io.Serializable;
 
 public class Customer implements Serializable {
@@ -130,5 +139,63 @@ public class Customer implements Serializable {
                 ", c_mktsegment='" + c_mktsegment + '\'' +
                 ", c_comment='" + c_comment + '\'' +
                 '}';
+    }
+
+    public static DataStream<Customer> createCustomerStream(StreamExecutionEnvironment env, String customerPath) {
+        FileSource<String> source = FileSource.forRecordStreamFormat(
+                new TextLineInputFormat(StandardCharsets.UTF_8.name()),
+                new org.apache.flink.core.fs.Path(customerPath))
+                .build();
+
+        DataStream<String> lineStream = env.fromSource(
+                source,
+                WatermarkStrategy.noWatermarks(),
+                "customer.tbl");
+
+        DataStream<Customer> customerStream = lineStream
+                .filter(line -> !line.trim().isEmpty())
+                .map(new MapFunction<String, Customer>() {
+                    private static final long serialVersionUID = 1L;
+
+                    @Override
+                    public Customer map(String line) throws Exception {
+                        String[] parts = line.split("\\|");
+
+                        if (parts.length != 8) {
+                            System.err
+                                    .println("Skipping malformed line (wrong number of fields for Customer): " + line);
+                            return null;
+                        }
+
+                        try {
+                            long c_custkey = Long.parseLong(parts[0].trim());
+                            String c_name = parts[1].trim();
+                            String c_address = parts[2].trim();
+                            long c_nationkey = Long.parseLong(parts[3].trim());
+                            String c_phone = parts[4].trim();
+                            BigDecimal c_acctbal = new BigDecimal(parts[5].trim());
+                            String c_mktsegment = parts[6].trim();
+                            String c_comment = parts[7].trim();
+
+                            return new Customer(c_custkey, c_name, c_address, c_nationkey,
+                                    c_phone, c_acctbal, c_mktsegment, c_comment);
+
+                        } catch (NumberFormatException e) {
+                            System.err.println(
+                                    "Skipping line due to number format error for Customer: " + line + " - "
+                                            + e.getMessage());
+                            return null;
+                        } catch (Exception e) {
+                            System.err.println(
+                                    "Skipping line due to unexpected parsing error for Customer: " + line + " - "
+                                            + e.getMessage());
+                            return null;
+                        }
+                    }
+                })
+                .returns(Customer.class)
+                .filter(Objects::nonNull);
+
+        return customerStream;
     }
 }
