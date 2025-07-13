@@ -12,6 +12,7 @@ import org.apache.flink.api.common.serialization.SimpleStringEncoder;
 import org.apache.flink.api.common.state.ListState;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.connector.file.sink.FileSink;
+import org.apache.flink.runtime.state.hashmap.HashMapStateBackend;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.KeyedStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
@@ -161,6 +162,10 @@ public class TPCHQuery3JobV2 {
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         // Set checkpointing for fault-tolerant file sink
         env.enableCheckpointing(5000);
+
+        // Store states in local files
+        env.setStateBackend(new HashMapStateBackend());
+        env.getCheckpointConfig().setCheckpointStorage("file://" + outputPath + "/checkpoints");
 
         DataStream<Order> orderStream = Order.createOrderStream(env, orderPath);
         DataStream<Customer> customerStream = Customer.createCustomerStream(env,
